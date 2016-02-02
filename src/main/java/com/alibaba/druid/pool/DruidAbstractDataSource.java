@@ -1,5 +1,5 @@
 /*
- * Copyright 1999-2011 Alibaba Group Holding Ltd.
+ * Copyright 1999-2101 Alibaba Group Holding Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -97,6 +97,7 @@ public abstract class DruidAbstractDataSource extends WrapperAdapter implements 
      * @see #setMinEvictableIdleTimeMillis
      */
     public static final long                           DEFAULT_MIN_EVICTABLE_IDLE_TIME_MILLIS    = 1000L * 60L * 30L;
+    public static final long                           DEFAULT_PHY_TIMEOUT_MILLIS                = 1000L * 60L * 60L * 7;
 
     protected volatile boolean                         defaultAutoCommit                         = true;
     protected volatile Boolean                         defaultReadOnly;
@@ -158,6 +159,8 @@ public abstract class DruidAbstractDataSource extends WrapperAdapter implements 
     protected volatile int                             numTestsPerEvictionRun                    = DEFAULT_NUM_TESTS_PER_EVICTION_RUN;
 
     protected volatile long                            minEvictableIdleTimeMillis                = DEFAULT_MIN_EVICTABLE_IDLE_TIME_MILLIS;
+
+    protected volatile long                            phyTimeoutMillis                          = DEFAULT_PHY_TIMEOUT_MILLIS;
 
     protected volatile boolean                         removeAbandoned;
 
@@ -689,6 +692,14 @@ public abstract class DruidAbstractDataSource extends WrapperAdapter implements 
             LOG.error("minEvictableIdleTimeMillis should be greater than 30000");
         }
         this.minEvictableIdleTimeMillis = minEvictableIdleTimeMillis;
+    }
+
+    public long getPhyTimeoutMillis() {
+        return phyTimeoutMillis;
+    }
+
+    public void setPhyTimeoutMillis(long phyTimeoutMillis) {
+        this.phyTimeoutMillis = phyTimeoutMillis;
     }
 
     public int getNumTestsPerEvictionRun() {
@@ -1382,7 +1393,7 @@ public abstract class DruidAbstractDataSource extends WrapperAdapter implements 
         return conn;
     }
 
-    public Connection createPhysicalConnection() throws SQLException {
+    public PhysicalConnectionInfo createPhysicalConnection() throws SQLException {
         String url = this.getUrl();
         Properties connectProperties = getConnectProperties();
 
@@ -1425,18 +1436,22 @@ public abstract class DruidAbstractDataSource extends WrapperAdapter implements 
 
         Connection conn;
 
-        long startNano = System.nanoTime();
-
+        long connectStartNanos = System.nanoTime();
+        long connectedNanos, initedNanos, validatedNanos;
         try {
             conn = createPhysicalConnection(url, physicalConnectProperties);
+            connectedNanos = System.nanoTime();
 
             if (conn == null) {
                 throw new SQLException("connect error, url " + url + ", driverClass " + this.driverClass);
             }
 
             initPhysicalConnection(conn);
+            initedNanos = System.nanoTime();
 
             validateConnection(conn);
+            validatedNanos = System.nanoTime();
+            
             createError = null;
         } catch (SQLException ex) {
             createErrorCount.incrementAndGet();
@@ -1454,11 +1469,11 @@ public abstract class DruidAbstractDataSource extends WrapperAdapter implements 
             createErrorCount.incrementAndGet();
             throw ex;
         } finally {
-            long nano = System.nanoTime() - startNano;
+            long nano = System.nanoTime() - connectStartNanos;
             createTimespan += nano;
         }
 
-        return conn;
+        return new PhysicalConnectionInfo(conn, connectStartNanos, connectedNanos, initedNanos, validatedNanos);
     }
 
     public void initPhysicalConnection(Connection conn) throws SQLException {
@@ -1741,5 +1756,50 @@ public abstract class DruidAbstractDataSource extends WrapperAdapter implements 
         }
         
         this.maxCreateTaskCount = maxCreateTaskCount;
+    }
+    
+    static class PhysicalConnectionInfo {
+        private Connection connection;
+        private long connectStartNanos;
+        private long connectedNanos;
+        private long initedNanos;
+        private long validatedNanos;
+        
+        public PhysicalConnectionInfo(Connection connection //
+                                      , long connectStartNanos //
+                                      , long connectedNanos //
+                                      , long initedNanos //
+                                      , long validatedNanos) {
+            this.connection = connection;
+            
+            this.connectStartNanos = connectStartNanos;
+            this.connectedNanos = connectedNanos;
+            this.initedNanos = initedNanos;
+            this.validatedNanos = validatedNanos;
+        }
+        
+        public Connection getPhysicalConnection() {
+            return connection;
+        }
+
+        public long getConnectStartNanos() {
+            return connectStartNanos;
+        }
+        
+        public long getConnectedNanos() {
+            return connectedNanos;
+        }
+        
+        public long getInitedNanos() {
+            return initedNanos;
+        }
+
+        public long getValidatedNanos() {
+            return validatedNanos;
+        }
+        
+        public long getConnectNanoSpan() {
+            return connectedNanos - connectStartNanos;
+        }
     }
 }

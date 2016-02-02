@@ -1,5 +1,5 @@
 /*
- * Copyright 1999-2011 Alibaba Group Holding Ltd.
+ * Copyright 1999-2101 Alibaba Group Holding Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -45,7 +45,7 @@ import com.alibaba.druid.sql.dialect.mysql.ast.expr.MySqlExtractExpr;
 import com.alibaba.druid.sql.dialect.mysql.ast.expr.MySqlIntervalExpr;
 import com.alibaba.druid.sql.dialect.mysql.ast.expr.MySqlIntervalUnit;
 import com.alibaba.druid.sql.dialect.mysql.ast.expr.MySqlMatchAgainstExpr;
-import com.alibaba.druid.sql.dialect.mysql.ast.expr.MySqlSelectGroupByExpr;
+import com.alibaba.druid.sql.dialect.mysql.ast.expr.MySqlOrderingExpr;
 import com.alibaba.druid.sql.dialect.mysql.ast.expr.MySqlMatchAgainstExpr.SearchModifier;
 import com.alibaba.druid.sql.dialect.mysql.ast.expr.MySqlOutFileExpr;
 import com.alibaba.druid.sql.dialect.mysql.ast.expr.MySqlUserName;
@@ -64,7 +64,7 @@ public class MySqlExprParser extends SQLExprParser {
     public static String[] AGGREGATE_FUNCTIONS = { "AVG", "COUNT", "GROUP_CONCAT", "MAX", "MIN", "STDDEV", "SUM" };
 
     public MySqlExprParser(Lexer lexer){
-        super(lexer);
+        super(lexer, JdbcConstants.MYSQL);
         this.aggregateFunctions = AGGREGATE_FUNCTIONS;
     }
 
@@ -531,7 +531,19 @@ public class MySqlExprParser extends SQLExprParser {
             SQLExpr expr = this.expr();
             ((MySqlSQLColumnDefinition) column).setOnUpdate(expr);
         }
-
+        if (identifierEquals("CHARSET")) {
+            lexer.nextToken();
+            MySqlCharExpr charSetCollateExpr=new MySqlCharExpr();
+            charSetCollateExpr.setCharset(lexer.stringVal());
+            lexer.nextToken();
+            if (identifierEquals("COLLATE")) {
+                lexer.nextToken();
+                charSetCollateExpr.setCollate(lexer.stringVal());
+                lexer.nextToken();
+            }
+            ((MySqlSQLColumnDefinition) column).setCharsetExpr(charSetCollateExpr);
+            return parseColumnRest(column);
+        }
         if (identifierEquals("AUTO_INCREMENT")) {
             lexer.nextToken();
             if (column instanceof MySqlSQLColumnDefinition) {
@@ -745,6 +757,13 @@ public class MySqlExprParser extends SQLExprParser {
             SQLName indexName = name();
             unique.setIndexName(indexName);
         }
+        
+        //5.5语法 USING BTREE 放在index 名字后
+        if (identifierEquals("USING")) {
+            lexer.nextToken();
+            unique.setIndexType(lexer.stringVal());
+            lexer.nextToken();
+        }
 
         accept(Token.LPAREN);
         for (;;) {
@@ -847,8 +866,8 @@ public class MySqlExprParser extends SQLExprParser {
         return aggregateExpr;
     }
 
-    public MySqlSelectGroupByExpr parseSelectGroupByItem() {
-        MySqlSelectGroupByExpr item = new MySqlSelectGroupByExpr();
+    public MySqlOrderingExpr parseSelectGroupByItem() {
+        MySqlOrderingExpr item = new MySqlOrderingExpr();
 
         item.setExpr(expr());
 

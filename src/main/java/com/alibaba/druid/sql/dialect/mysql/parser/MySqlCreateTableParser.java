@@ -1,5 +1,5 @@
 /*
- * Copyright 1999-2011 Alibaba Group Holding Ltd.
+ * Copyright 1999-2101 Alibaba Group Holding Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,9 @@
  */
 package com.alibaba.druid.sql.dialect.mysql.parser;
 
+import com.alibaba.druid.sql.ast.SQLExpr;
 import com.alibaba.druid.sql.ast.SQLName;
+import com.alibaba.druid.sql.ast.SQLOrderingSpecification;
 import com.alibaba.druid.sql.ast.statement.SQLCheck;
 import com.alibaba.druid.sql.ast.statement.SQLColumnDefinition;
 import com.alibaba.druid.sql.ast.statement.SQLCreateTableStatement;
@@ -27,6 +29,7 @@ import com.alibaba.druid.sql.dialect.mysql.ast.MySqlKey;
 import com.alibaba.druid.sql.dialect.mysql.ast.MySqlPrimaryKey;
 import com.alibaba.druid.sql.dialect.mysql.ast.MySqlUnique;
 import com.alibaba.druid.sql.dialect.mysql.ast.MysqlForeignKey;
+import com.alibaba.druid.sql.dialect.mysql.ast.expr.MySqlOrderingExpr;
 import com.alibaba.druid.sql.dialect.mysql.ast.statement.MySqlCreateTableStatement;
 import com.alibaba.druid.sql.dialect.mysql.ast.statement.MySqlCreateTableStatement.TableSpaceOption;
 import com.alibaba.druid.sql.dialect.mysql.ast.statement.MySqlPartitionByHash;
@@ -581,7 +584,7 @@ public class MySqlCreateTableParser extends SQLCreateTableParser {
 
         if (lexer.token() == (Token.SELECT)) {
             SQLSelect query = new MySqlSelectParser(this.exprParser).select();
-            stmt.setQuery(query);
+            stmt.setSelect(query);
         }
         
         while (lexer.token() == (Token.HINT)) {
@@ -662,7 +665,16 @@ public class MySqlCreateTableParser extends SQLCreateTableParser {
 
             accept(Token.LPAREN);
             for (;;) {
-                key.getColumns().add(this.exprParser.expr());
+                SQLExpr expr = this.exprParser.expr();
+                if (lexer.token() == Token.ASC) {
+                    lexer.nextToken();
+                    expr = new MySqlOrderingExpr(expr, SQLOrderingSpecification.ASC);
+                } else if (lexer.token() == Token.DESC) {
+                    lexer.nextToken();
+                    expr = new MySqlOrderingExpr(expr, SQLOrderingSpecification.DESC);
+                }
+                
+                key.getColumns().add(expr);
                 if (!(lexer.token() == (Token.COMMA))) {
                     break;
                 } else {
